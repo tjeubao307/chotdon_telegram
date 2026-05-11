@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tạo Đơn Hàng Mới</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 15px;
+            background-color: var(--tg-theme-bg-color, #ffffff);
+            color: var(--tg-theme-text-color, #000000);
+            margin: 0;
+        }
+        h2 { margin-top: 0; font-size: 20px; text-align: center;}
+        
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 14px;}
+        
+        input {
+            width: 100%; padding: 10px; border: 1px solid #ccc;
+            border-radius: 5px; box-sizing: border-box; font-size: 14px;
+        }
+
+        .quick-paste-box {
+            background-color: #f0f8ff;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px dashed #007bff;
+            margin-bottom: 20px;
+        }
+        .quick-input-flex { display: flex; gap: 8px; }
+        .btn-split {
+            background-color: #007bff; color: white; border: none;
+            border-radius: 5px; padding: 0 15px; font-weight: bold; cursor: pointer;
+            white-space: nowrap;
+        }
+
+        /* ĐÃ SỬA: Chia thành 5 cột (Thêm 1 cột cho nút Check) */
+        .item-row {
+            display: grid;
+            grid-template-columns: 2.5fr 1.5fr 1fr 38px 38px; 
+            gap: 5px;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+        
+        .item-header {
+            display: grid;
+            grid-template-columns: 2.5fr 1.5fr 1fr 38px 38px;
+            gap: 5px;
+            font-size: 11px;
+            font-weight: bold;
+            color: gray;
+            margin-bottom: 5px;
+            text-align: center;
+        }
+
+        .add-btn {
+            background-color: #248c1d; color: white; border: none;
+            padding: 10px; width: 100%; border-radius: 5px;
+            font-weight: bold; font-size: 14px; cursor: pointer;
+            margin-bottom: 20px;
+        }
+        
+        /* Thiết kế 2 nút thao tác */
+        .remove-btn, .check-btn {
+            color: white; border: none;
+            height: 38px; border-radius: 5px; cursor: pointer;
+            font-weight: bold; font-size: 14px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .remove-btn { background-color: #ff3b30; }
+        .check-btn { background-color: #007aff; font-size: 16px;}
+    </style>
+</head>
+<body>
+    <h2>🛒 TẠO ĐƠN HÀNG</h2>
+    
+    <div class="form-group">
+        <label>📱 Số điện thoại khách:</label>
+        <input type="tel" id="phone" placeholder="Nhập SĐT (VD: 0987654321)">
+    </div>
+
+    <div class="quick-paste-box">
+        <label style="color: #007bff;">⚡ Dán chuỗi mã hàng loạt vào đây:</label>
+        <div class="quick-input-flex">
+            <input type="text" id="quick-input" placeholder="VD: AO01 2, QUAN1 1..." onkeypress="if(event.key === 'Enter') processQuickInput()">
+            <button type="button" class="btn-split" onclick="processQuickInput()">TÁCH MÃ</button>
+        </div>
+        <div style="font-size: 11px; color: gray; margin-top: 5px;">Hệ thống sẽ tự xé lẻ và điền xuống các ô bên dưới.</div>
+    </div>
+
+    <div class="form-group">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+            <label style="margin-bottom: 0;">📦 Danh sách Sản phẩm:</label>
+            <button type="button" id="btn-check-all" class="btn-split" style="background-color: #28a745; height: 32px; font-size: 13px; padding: 0 10px;" onclick="checkAllStock()">
+                🔍 CHECK TẤT CẢ
+            </button>
+        </div>
+        
+        <div id="check-result-box" style="display: none; margin-bottom: 10px; padding: 10px; border-radius: 5px; font-size: 13px; line-height: 1.5;"></div>
+
+        <div class="item-header">
+            <div style="text-align: left;">MÃ HÀNG</div>
+            <div>SIZE</div>
+            <div>SL</div>
+            <div>TỒN</div>
+            <div>XÓA</div>
+        </div>
+        
+        <div id="items-container">
+            <div class="item-row">
+                <input type="text" class="masp" placeholder="Mã (VD: AO01)">
+                <input type="text" class="size" placeholder="S, M...">
+                <input type="number" class="qty" value="1" min="1" style="text-align: center;">
+                <button type="button" class="check-btn" onclick="checkStock(this)">🔍</button>
+                <button type="button" class="remove-btn" onclick="this.parentElement.remove()">X</button>
+            </div>
+        </div>
+        
+        <button type="button" class="add-btn" onclick="addNewRow()">➕ THÊM SẢN PHẨM KHÁC</button>
+    </div>
+
+    <div class="form-group">
+        <label>💵 Tiền Cọc Trước (VNĐ):</label>
+        <input type="number" id="deposit" value="0" min="0" placeholder="Nếu không cọc, để số 0">
+    </div>
+
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand(); 
+
+        // Hàm Xử lý khi bấm nút Check 🔍 từng dòng (Đã đổi sang in ra khung)
+        async function checkStock(btn) {
+            let row = btn.parentElement;
+            let masp = row.querySelector('.masp').value.trim().toUpperCase();
+            let size = row.querySelector('.size').value.trim().toUpperCase();
+            let resultBox = document.getElementById("check-result-box"); // Gọi khung kết quả
+
+            if (masp === "") {
+                if (resultBox) {
+                    resultBox.style.display = "block";
+                    resultBox.style.backgroundColor = "#fff3cd";
+                    resultBox.style.border = "1px solid #ffeeba";
+                    resultBox.style.color = "#856404";
+                    resultBox.innerHTML = "⚠️ <b>Vui lòng nhập Mã Sản Phẩm trước khi kiểm tra!</b>";
+                }
+                return;
+            }
+            
+            let fullCode = masp + size;
+            let originalText = btn.innerHTML;
+            btn.innerHTML = "⏳"; 
+            btn.disabled = true;
+            if (resultBox) resultBox.style.display = "none"; // Ẩn khung cũ đi khi đang quét
+
+            const API_URL = "https://script.google.com/macros/s/AKfycbwXzZQY2NzCY46KfAEl738F5yRhggXEY7FWzHIar_sgc5lohOozcFNAaqapFhADYloBow/exec";
+            
+            try {
+                let response = await fetch(API_URL + "?masp=" + encodeURIComponent(fullCode));
+                let rawText = await response.text(); 
+                
+                try {
+                    let result = JSON.parse(rawText);
+
+                    if (resultBox) {
+                        resultBox.style.display = "block";
+                        
+                        if (result.error) {
+                            resultBox.style.backgroundColor = "#fce8e6"; 
+                            resultBox.style.border = "1px solid #fad2cf";
+                            resultBox.style.color = "#c5221f";
+                            resultBox.innerHTML = `❌ <b>MÃ [${fullCode}]:</b><br>${result.error}`;
+                        } else {
+                            let text = `📦 MÃ: <b>${result.masp}</b><br>`;
+                            text += `📊 Tồn kho: <b>${result.tonkho}</b> chiếc<br>`;
+                            text += `💰 Giá: <b>${result.giaban.toLocaleString()}đ</b>`;
+                            
+                            // Gợi ý size
+                            let sugText = "";
+                            if (result.suggestions && result.suggestions.length > 0) {
+                                sugText = `<br><br>👉 <i style="color:gray;">Gợi ý size còn: ${result.suggestions.join(", ")}</i>`;
+                            }
+
+                            if (result.tonkho <= 0) {
+                                resultBox.style.backgroundColor = "#fce8e6"; 
+                                resultBox.style.border = "1px solid #fad2cf";
+                                resultBox.style.color = "#c5221f";
+                                resultBox.innerHTML = `🔻 <b>ĐÃ HẾT HÀNG!</b><br><br>${text}${sugText}`;
+                            } else {
+                                resultBox.style.backgroundColor = "#e6f4ea"; 
+                                resultBox.style.border = "1px solid #ceead6";
+                                resultBox.style.color = "#137333";
+                                resultBox.innerHTML = `✅ <b>ĐANG CÒN HÀNG:</b><br><br>${text}${sugText}`;
+                            }
+                        }
+                    }
+                } catch (parseError) {
+                    if (resultBox) {
+                        resultBox.style.display = "block";
+                        resultBox.style.backgroundColor = "#fce8e6";
+                        resultBox.style.color = "#c5221f";
+                        resultBox.innerHTML = "⚠️ Cấu hình Google Script sai quyền truy cập!";
+                    }
+                }
+
+            } catch (error) {
+                if (resultBox) {
+                    resultBox.style.display = "block";
+                    resultBox.style.backgroundColor = "#fff3cd";
+                    resultBox.style.color = "#856404";
+                    resultBox.innerHTML = "⚠️ Lỗi mạng cục bộ: " + error.message;
+                }
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        function processQuickInput() {
+            let inputField = document.getElementById("quick-input");
+            let rawText = inputField.value.trim();
+            if (!rawText) return;
+
+            let cleanText = rawText.replace(/[-+;.]/g, ',').replace(/\s+/g, ' ');
+            let items = cleanText.split(',');
+            const container = document.getElementById('items-container');
+
+            items.forEach(item => {
+                item = item.trim();
+                if (!item) return;
+
+                let parts = item.split(' ');
+                let qty = 1;
+                let masp = item;
+
+                if (parts.length > 1) {
+                    let lastPart = parts[parts.length - 1];
+                    if (!isNaN(lastPart)) {
+                        qty = parseInt(lastPart);
+                        parts.pop(); 
+                        masp = parts.join(''); 
+                    } else {
+                        masp = parts.join(''); 
+                    }
+                }
+
+                const row = document.createElement('div');
+                row.className = 'item-row';
+                row.innerHTML = `
+                    <input type="text" class="masp" placeholder="Mã SP" value="${masp.toUpperCase()}">
+                    <input type="text" class="size" placeholder="Size">
+                    <input type="number" class="qty" value="${qty}" min="1" style="text-align: center;">
+                    <button type="button" class="check-btn" onclick="checkStock(this)">🔍</button>
+                    <button type="button" class="remove-btn" onclick="this.parentElement.remove()">X</button>
+                `;
+                container.appendChild(row);
+            });
+
+            inputField.value = "";
+            let rows = document.querySelectorAll('.item-row');
+            if (rows.length > 1) {
+                let firstRow = rows[0];
+                if (firstRow.querySelector('.masp').value.trim() === "" && firstRow.querySelector('.size').value.trim() === "") {
+                    firstRow.remove();
+                }
+            }
+        }
+
+        function addNewRow() {
+            const container = document.getElementById('items-container');
+            const row = document.createElement('div');
+            row.className = 'item-row';
+            row.innerHTML = `
+                <input type="text" class="masp" placeholder="Mã SP">
+                <input type="text" class="size" placeholder="Size">
+                <input type="number" class="qty" value="1" min="1" style="text-align: center;">
+                <button type="button" class="check-btn" onclick="checkStock(this)">🔍</button>
+                <button type="button" class="remove-btn" onclick="this.parentElement.remove()">X</button>
+            `;
+            container.appendChild(row);
+        }
+
+        tg.MainButton.text = "✅ XÁC NHẬN CHỐT ĐƠN";
+        tg.MainButton.show();
+
+        tg.MainButton.onClick(function() {
+            let phone = document.getElementById("phone").value.trim();
+            let deposit = document.getElementById("deposit").value;
+            let items_array = [];
+            
+            let rows = document.querySelectorAll('.item-row');
+            rows.forEach(row => {
+                let masp = row.querySelector('.masp').value.trim().toUpperCase();
+                let size = row.querySelector('.size').value.trim().toUpperCase();
+                let qty = row.querySelector('.qty').value;
+
+                if (masp !== "") {
+                    let fullCode = masp + size; 
+                    items_array.push(fullCode + " " + qty);
+                }
+            });
+
+            if (phone.length < 9 || items_array.length === 0) {
+                tg.showAlert("Vui lòng nhập đúng SĐT và ít nhất 1 Mã Sản Phẩm!");
+                return;
+            }
+
+            let final_items_str = items_array.join(", ");
+            let orderData = {
+                phone: phone,
+                items_str: final_items_str, 
+                deposit: parseInt(deposit) || 0
+            };
+
+            tg.sendData(JSON.stringify(orderData));
+        });
+		// Hàm Kiểm tra tồn kho toàn bộ danh sách (Bản nâng cấp không dùng Popup)
+        async function checkAllStock() {
+            let rows = document.querySelectorAll('.item-row');
+            let itemsToCheck = [];
+
+            // 1. Thu thập các mã hợp lệ trên màn hình
+            rows.forEach(row => {
+                let masp = row.querySelector('.masp').value.trim().toUpperCase();
+                let size = row.querySelector('.size').value.trim().toUpperCase();
+                let qty = parseInt(row.querySelector('.qty').value) || 1;
+
+                if (masp !== "") {
+                    let fullCode = masp + size;
+                    itemsToCheck.push({ fullCode: fullCode, qty: qty });
+                }
+            });
+
+            if (itemsToCheck.length === 0) {
+                tg.showAlert("⚠️ Danh sách trống. Vui lòng nhập hoặc tách mã trước!");
+                return;
+            }
+
+            // 2. Đổi text nút & ẩn khung kết quả cũ
+            let checkAllBtn = document.getElementById("btn-check-all");
+            let resultBox = document.getElementById("check-result-box");
+            let originalText = checkAllBtn.innerHTML;
+            
+            checkAllBtn.innerHTML = "⏳ ĐANG KIỂM TRA...";
+            checkAllBtn.disabled = true;
+            if (resultBox) resultBox.style.display = "none";
+
+            const API_URL = "https://script.google.com/macros/s/AKfycbwXzZQY2NzCY46KfAEl738F5yRhggXEY7FWzHIar_sgc5lohOozcFNAaqapFhADYloBow/exec";
+            let allOk = true;
+
+            try {
+                // 3. Chạy API song song
+                let fetchPromises = itemsToCheck.map(item =>
+                    fetch(API_URL + "?masp=" + encodeURIComponent(item.fullCode))
+                    .then(res => res.text())
+                    .then(rawText => {
+                        try {
+                            let result = JSON.parse(rawText);
+                            if (result.error) {
+                                allOk = false;
+                                return `❌ <b>${item.fullCode}</b>: ${result.error}`;
+                            } else {
+                                let sugText = "";
+                                if (result.suggestions && result.suggestions.length > 0) {
+                                    sugText = ` <i style="color:gray;">(Gợi ý: ${result.suggestions.join(", ")})</i>`;
+                                }
+
+                                if (result.tonkho < item.qty) {
+                                    allOk = false;
+                                    return `🔻 <b>${item.fullCode}</b>: Thiếu hàng (Còn ${result.tonkho}, Cần ${item.qty})${sugText}`;
+                                } else {
+                                    return `✅ <b>${item.fullCode}</b>: Đủ hàng (Tồn ${result.tonkho})`;
+                                }
+                            }
+                        } catch (e) {
+                            allOk = false;
+                            return `⚠️ <b>${item.fullCode}</b>: Lỗi đọc dữ liệu Google`;
+                        }
+                    })
+                    .catch(e => {
+                        allOk = false;
+                        return `⚠️ <b>${item.fullCode}</b>: Lỗi mạng`;
+                    })
+                );
+
+                // 4. Chờ kết quả & in ra màn hình
+                let results = await Promise.all(fetchPromises);
+                let formattedSummary = results.join("<br>");
+
+                if (resultBox) {
+                    resultBox.style.display = "block";
+                    if (allOk) {
+                        resultBox.style.backgroundColor = "#e6f4ea"; 
+                        resultBox.style.border = "1px solid #ceead6";
+                        resultBox.style.color = "#137333";
+                        resultBox.innerHTML = "🎉 <b>TẤT CẢ ĐỀU ĐỦ HÀNG!</b><br><br>" + formattedSummary;
+                    } else {
+                        resultBox.style.backgroundColor = "#fce8e6"; 
+                        resultBox.style.border = "1px solid #fad2cf";
+                        resultBox.style.color = "#c5221f";
+                        resultBox.innerHTML = "⚠️ <b>CÓ MÃ THIẾU / HẾT HÀNG!</b><br><br>" + formattedSummary;
+                    }
+                }
+
+            } catch (error) {
+                if (resultBox) {
+                    resultBox.style.display = "block";
+                    resultBox.style.backgroundColor = "#fff3cd";
+                    resultBox.style.color = "#856404";
+                    resultBox.innerHTML = "⚠️ <b>Lỗi hệ thống:</b> " + error.message;
+                }
+            } finally {
+                checkAllBtn.innerHTML = originalText;
+                checkAllBtn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
